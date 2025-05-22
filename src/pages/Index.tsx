@@ -20,35 +20,44 @@ const Index = () => {
 
   const [timeUntilSave, setTimeUntilSave] = useState<number>(10);
   const [isDirty, setIsDirty] = useState(false);
+  const lastTimeRef = useRef<number>(Date.now());
 
-  // Update the countdown timer
+  // Update the countdown timer with more consistent timing
   useEffect(() => {
-    let lastChangeTime = Date.now();
     let interval: number | null = null;
 
     const updateTimer = () => {
-      const elapsed = (Date.now() - lastChangeTime) / 1000;
+      const now = Date.now();
+      const elapsed = (now - lastTimeRef.current) / 1000;
       const remaining = Math.max(0, 10 - elapsed);
       setTimeUntilSave(remaining);
+      
+      // If timer has expired and we have unsaved changes, save content
+      if (remaining === 0 && isDirty) {
+        handleContentChange(content);
+      }
     };
 
     if (isDirty && !isSaving) {
-      lastChangeTime = Date.now();
+      // Start the timer when content becomes dirty
       interval = window.setInterval(updateTimer, 500);
     }
 
     return () => {
       if (interval) window.clearInterval(interval);
     };
-  }, [isDirty, isSaving]);
+  }, [isDirty, isSaving, content]);
 
   const handleContentChange = (newContent: string) => {
+    console.log("Index: Content change triggered save");
     saveContent(newContent);
     setIsDirty(false);
   };
 
   const handleLocalChange = () => {
+    console.log("Index: Local change detected, marking as dirty");
     setIsDirty(true);
+    lastTimeRef.current = Date.now(); // Reset timer on local changes
   };
 
   if (error) {
@@ -109,6 +118,7 @@ const Index = () => {
           <TextEditor 
             content={content} 
             onChange={handleContentChange} 
+            onLocalChange={handleLocalChange}
             isLocalUpdate={isLocalUpdate}
           />
         </>

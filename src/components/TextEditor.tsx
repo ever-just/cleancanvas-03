@@ -7,10 +7,11 @@ import { saveCursorPosition, restoreCursorPosition, updateContentPreservingCurso
 interface TextEditorProps {
   content: string;
   onChange: (content: string) => void;
+  onLocalChange?: () => void;
   isLocalUpdate?: boolean;
 }
 
-const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProps) => {
+const TextEditor = ({ content, onChange, onLocalChange, isLocalUpdate = false }: TextEditorProps) => {
   const [localContent, setLocalContent] = useState(content);
   // Increase debounce time from 2s to 5s for better typing experience
   const debouncedContent = useDebounce(localContent, 5000);
@@ -31,7 +32,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     }
     
     if (content !== localContent) {
-      console.log("Applying external update from props:", content);
+      console.log("Applying external update from props:", content.substring(0, 50));
       setIsProcessingUpdate(true);
       
       // Save cursor position before changing content
@@ -145,6 +146,11 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       if (newContent !== localContent) {
         setLocalContent(newContent);
         setIsDirty(true); // Mark as dirty when content changes
+        
+        // Notify parent of local change for countdown timer
+        if (onLocalChange) {
+          onLocalChange();
+        }
       }
     } catch (e) {
       console.error("Error handling input:", e);
@@ -164,6 +170,11 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       const finalText = e.currentTarget.innerText;
       setLocalContent(finalText);
       setIsDirty(true);
+      
+      // Notify parent of local change
+      if (onLocalChange) {
+        onLocalChange();
+      }
     }
     
     // Small delay to ensure content is processed before allowing new updates
