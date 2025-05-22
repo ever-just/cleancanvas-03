@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import TextEditor from "@/components/TextEditor";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { v4 as uuidv4 } from 'uuid';
 
 const Index = () => {
   const [content, setContent] = useState("");
@@ -10,11 +11,13 @@ const Index = () => {
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [clientId] = useState(() => uuidv4()); // Generate unique client ID
+  const [isLocalUpdate, setIsLocalUpdate] = useState(false);
 
   useEffect(() => {
     const initializeDocument = async () => {
       try {
-        console.log("Initializing document...");
+        console.log("Initializing document with client ID:", clientId);
         // Fetch initial content
         const { data, error } = await supabase
           .from('documents')
@@ -62,13 +65,20 @@ const Index = () => {
               { event: 'UPDATE', schema: 'public', table: 'documents', filter: 'id=eq.shared' }, 
               (payload: any) => {
                 const newContent = payload.new.content;
-                console.log("Realtime update received:", newContent);
-                // Only update if content is different to prevent loops
-                if (newContent !== content) {
+                const updateClientId = payload.new.client_id;
+                
+                console.log("Realtime update received from client:", updateClientId);
+                console.log("My client ID:", clientId);
+                
+                // Only update if content is different AND not from this client
+                if (newContent !== content && updateClientId !== clientId) {
+                  console.log("Applying external update from another client");
                   setContent(newContent);
                   if (payload.new.updated_at) {
                     setLastSaved(new Date(payload.new.updated_at));
                   }
+                } else {
+                  console.log("Ignoring own update or duplicate content");
                 }
               })
           .subscribe();
@@ -97,11 +107,13 @@ const Index = () => {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, []);
+  }, [clientId]);
 
   const handleContentChange = async (newContent: string) => {
     console.log(`Content change handler called with text length: ${newContent.length}`);
     console.log("Content sample:", newContent.substring(0, 50));
+    
+    setIsLocalUpdate(true);
     setContent(newContent);
     
     // Save to localStorage as a backup
@@ -110,11 +122,14 @@ const Index = () => {
     setIsSaving(true);
     
     try {
-      console.log("Saving to Supabase...");
+      console.log("Saving to Supabase with client ID:", clientId);
       const startTime = Date.now();
       const { data, error } = await supabase
         .from('documents')
-        .update({ content: newContent })
+        .update({ 
+          content: newContent,
+          client_id: clientId // Include client ID with the update
+        })
         .eq('id', 'shared')
         .select();
         
@@ -136,6 +151,8 @@ const Index = () => {
       toast.error("Failed to save changes");
     } finally {
       setIsSaving(false);
+      // Reset local update flag after a short delay
+      setTimeout(() => setIsLocalUpdate(false), 100);
     }
   };
 
@@ -175,6 +192,7 @@ const Index = () => {
           <TextEditor 
             content={content} 
             onChange={handleContentChange} 
+            isLocalUpdate={isLocalUpdate}
           />
         </>
       )}
