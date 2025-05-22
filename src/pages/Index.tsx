@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import TextEditor from "@/components/TextEditor";
 import { useDocumentSync } from "@/hooks/useDocumentSync";
 import { Badge } from "@/components/ui/badge";
