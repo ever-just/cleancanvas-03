@@ -4,6 +4,8 @@ import TextEditor from "@/components/TextEditor";
 import { useDocumentSync } from "@/hooks/useDocumentSync";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 const Index = () => {
   const {
@@ -11,9 +13,11 @@ const Index = () => {
     loading,
     error,
     isSaving,
+    isRefreshing,
     lastSaved,
     isLocalUpdate,
-    saveContent
+    saveContent,
+    refreshContent
   } = useDocumentSync({
     documentId: 'shared'
   });
@@ -60,6 +64,10 @@ const Index = () => {
     lastTimeRef.current = Date.now(); // Reset timer on local changes
   };
 
+  const handleRefresh = () => {
+    refreshContent();
+  };
+
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white text-black">
@@ -88,11 +96,25 @@ const Index = () => {
         <>
           <div className="fixed top-0 right-0 p-3 z-10 flex flex-col items-end gap-2 bg-white/80 backdrop-blur-sm rounded-bl-md">
             <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRefresh} 
+                disabled={isRefreshing}
+                className="h-8 px-2.5 text-xs"
+              >
+                <RefreshCw 
+                  className={`h-3.5 w-3.5 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} 
+                />
+                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
+
               {isDirty && (
                 <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">
                   Unsaved changes
                 </Badge>
               )}
+              
               {isSaving ? (
                 <span className="text-xs text-gray-600 flex items-center">
                   <span className="animate-pulse mr-1">●</span>

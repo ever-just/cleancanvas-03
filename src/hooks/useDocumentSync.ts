@@ -20,6 +20,7 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [clientId] = useState(() => uuidv4()); // Generate unique client ID
   const [isLocalUpdate, setIsLocalUpdate] = useState(false);
@@ -175,61 +176,63 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
     
     window.addEventListener('beforeunload', handleBeforeUnload);
     
-    // Add a periodic check to force sync if needed
-    const syncCheckInterval = setInterval(() => {
-      const now = Date.now();
-      
-      // Only run sync check if enough time has passed since last check
-      if (now - lastSyncCheckRef.current > FORCE_SYNC_INTERVAL) {
-        console.log("Performing periodic sync check...");
-        lastSyncCheckRef.current = now;
-        
-        // If we have content and haven't saved in a while, check server version
-        if (!isSaving && content !== lastSavedContentRef.current) {
-          console.log("Detected potential sync divergence, checking server version");
-          
-          // Force a server version check
-          supabase
-            .from('documents')
-            .select('updated_at, version')
-            .eq('id', documentId)
-            .single()
-            .then(({ data, error }) => {
-              if (!error && data) {
-                const serverTimestamp = new Date(data.updated_at).getTime();
-                console.log("Server timestamp:", new Date(serverTimestamp).toLocaleTimeString(), 
-                  "Local timestamp:", lastServerTimestampRef.current ? new Date(lastServerTimestampRef.current).toLocaleTimeString() : 'none');
-                
-                // If server is significantly newer, force a reload to get latest
-                const timeDiff = Math.abs(serverTimestamp - lastServerTimestampRef.current);
-                if (timeDiff > 10000) { // 10 seconds difference
-                  console.log("Detected significant version difference, forcing update");
-                  // Get latest content if significantly different
-                  supabase
-                    .from('documents')
-                    .select('content')
-                    .eq('id', documentId)
-                    .single()
-                    .then(({ data }) => {
-                      if (data && data.content !== content) {
-                        console.log("Forcing content update from server");
-                        setContent(data.content);
-                        lastSavedContentRef.current = data.content;
-                        toast.info("Document synchronized with server");
-                      }
-                    });
-                }
-              }
-            });
-        }
-      }
-    }, 10000); // Check every 10 seconds
-    
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      clearInterval(syncCheckInterval);
     };
-  }, [documentId, clientId, initialContent, content, isSaving]);
+  }, [documentId, clientId, initialContent, content]);
+
+  // New function to manually refresh content from server
+  const refreshContent = async () => {
+    console.log("=== MANUAL REFRESH REQUESTED ===");
+    setIsRefreshing(true);
+    
+    try {
+      const { data, error } = await supabase
+        .from('documents')
+        .select('content, updated_at, client_id, version')
+        .eq('id', documentId)
+        .single();
+        
+      if (error) {
+        console.error("Error refreshing document:", error);
+        toast.error("Failed to refresh document");
+        return;
+      }
+      
+      if (data) {
+        const serverTimestamp = new Date(data.updated_at).getTime();
+        
+        // Only update if server content is different
+        if (data.content !== content) {
+          console.log("Server content differs from local, updating...");
+          setContent(data.content);
+          lastSavedContentRef.current = data.content;
+          setLastSaved(new Date(data.updated_at));
+          lastServerTimestampRef.current = serverTimestamp;
+          
+          // Update last processed version information
+          lastProcessedUpdateRef.current = {
+            version: data.version,
+            timestamp: serverTimestamp,
+            clientId: data.client_id
+          };
+          
+          documentVersionRef.current = data.version;
+          
+          toast.success("Document refreshed from server");
+        } else {
+          console.log("Server content is identical, no update needed");
+          toast.info("Document is already up to date");
+        }
+      }
+    } catch (err) {
+      console.error("Refresh error:", err);
+      toast.error("Failed to refresh document");
+    } finally {
+      setIsRefreshing(false);
+      console.log("=== MANUAL REFRESH COMPLETED ===");
+    }
+  };
 
   const saveContent = async (newContent: string) => {
     console.log("=== SAVE CONTENT OPERATION STARTED ===");
@@ -314,9 +317,11 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
     loading,
     error,
     isSaving,
+    isRefreshing,
     lastSaved,
     isLocalUpdate,
     clientId,
-    saveContent
+    saveContent,
+    refreshContent
   };
 };
