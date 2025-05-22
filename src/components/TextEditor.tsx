@@ -10,7 +10,8 @@ interface TextEditorProps {
 
 const TextEditor = ({ content, onChange }: TextEditorProps) => {
   const [localContent, setLocalContent] = useState(content);
-  const debouncedContent = useDebounce(localContent, 500);
+  // Reduce debounce time from 500ms to 300ms for more responsive saves
+  const debouncedContent = useDebounce(localContent, 300);
   const editorRef = useRef<HTMLDivElement>(null);
   const [isComposing, setIsComposing] = useState(false);
   
@@ -36,23 +37,36 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
 
   // Send debounced content updates to parent
   useEffect(() => {
+    console.log("Debounced content update triggered");
     if (debouncedContent !== content) {
+      console.log("Sending update to parent", debouncedContent.substring(0, 50));
       onChange(debouncedContent);
     }
   }, [debouncedContent, onChange, content]);
 
-  // Instead of using dangerouslySetInnerHTML, we'll manually control the content
+  // Initialize editor content on first render and when content changes
   useEffect(() => {
     if (editorRef.current && content !== editorRef.current.innerText) {
+      console.log("Setting initial content in editor");
       // Only update DOM if content is different from what's displayed
       editorRef.current.innerText = content;
     }
   }, [content]);
 
+  // Force a save when the component unmounts
+  useEffect(() => {
+    return () => {
+      console.log("Editor unmounting, forcing save");
+      if (localContent !== content) {
+        onChange(localContent);
+      }
+    };
+  }, [localContent, content, onChange]);
+
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
     // Get the actual text content instead of innerHTML
     const newContent = e.currentTarget.innerText;
-    console.log("Raw text input:", newContent);
+    console.log("Text input detected, length:", newContent.length);
     setLocalContent(newContent);
   };
 
