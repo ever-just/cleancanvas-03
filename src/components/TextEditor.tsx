@@ -12,10 +12,12 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
   const [localContent, setLocalContent] = useState(content);
   const debouncedContent = useDebounce(localContent, 500);
   const editorRef = useRef<HTMLDivElement>(null);
+  const [isComposing, setIsComposing] = useState(false);
   
   // Update local content when content prop changes (from other users)
   useEffect(() => {
-    if (content !== localContent) {
+    if (content !== localContent && !isComposing) {
+      console.log("Updating local content from props:", content);
       setLocalContent(content);
       
       // Set cursor position to the end if the editor has focus
@@ -30,7 +32,7 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
         }
       }
     }
-  }, [content]);
+  }, [content, localContent, isComposing]);
 
   // Send debounced content updates to parent
   useEffect(() => {
@@ -39,11 +41,35 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
     }
   }, [debouncedContent, onChange, content]);
 
+  // Instead of using dangerouslySetInnerHTML, we'll manually control the content
+  useEffect(() => {
+    if (editorRef.current && content !== editorRef.current.innerText) {
+      // Only update DOM if content is different from what's displayed
+      editorRef.current.innerText = content;
+    }
+  }, [content]);
+
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    // Get the raw input value
-    const rawContent = e.currentTarget.innerHTML;
-    console.log("Raw input content:", rawContent);
-    setLocalContent(rawContent);
+    // Get the actual text content instead of innerHTML
+    const newContent = e.currentTarget.innerText;
+    console.log("Raw text input:", newContent);
+    setLocalContent(newContent);
+  };
+
+  // Composition events are used for IME (Input Method Editor) input like for Asian languages
+  const handleCompositionStart = () => {
+    console.log("Composition started");
+    setIsComposing(true);
+  };
+
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLDivElement>) => {
+    console.log("Composition ended");
+    setIsComposing(false);
+    // Make sure we have the final text after composition ends
+    if (e.currentTarget) {
+      const finalText = e.currentTarget.innerText;
+      setLocalContent(finalText);
+    }
   };
 
   return (
@@ -53,7 +79,8 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
         contentEditable="true"
         suppressContentEditableWarning={true}
         onInput={handleInput}
-        dangerouslySetInnerHTML={{ __html: localContent }}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         className={cn(
           "min-h-screen w-full p-8 md:p-16 lg:p-24 outline-none",
           "bg-white text-black",
@@ -64,7 +91,8 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
           fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif",
           maxWidth: "100%",
           direction: "ltr", // Explicitly set text direction to left-to-right
-          unicodeBidi: "normal" // Ensure normal Unicode bidirectional algorithm processing
+          unicodeBidi: "normal", // Ensure normal Unicode bidirectional algorithm processing
+          textAlign: "left" // Ensure text aligns from left
         }}
       />
     </div>

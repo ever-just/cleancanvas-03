@@ -12,6 +12,7 @@ const Index = () => {
   useEffect(() => {
     const initializeDocument = async () => {
       try {
+        console.log("Initializing document...");
         // Fetch initial content
         const { data, error } = await supabase
           .from('documents')
@@ -22,6 +23,7 @@ const Index = () => {
         if (error) {
           if (error.code === 'PGRST116') {
             // Document doesn't exist yet, create it
+            console.log("Document doesn't exist, creating it...");
             await supabase
               .from('documents')
               .insert({ id: 'shared', content: '' });
