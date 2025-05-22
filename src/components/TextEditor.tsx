@@ -40,7 +40,10 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
   }, [debouncedContent, onChange, content]);
 
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    setLocalContent(e.currentTarget.innerHTML);
+    // Get the raw input value
+    const rawContent = e.currentTarget.innerHTML;
+    console.log("Raw input content:", rawContent);
+    setLocalContent(rawContent);
   };
 
   return (
@@ -60,6 +63,8 @@ const TextEditor = ({ content, onChange }: TextEditorProps) => {
         style={{
           fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif",
           maxWidth: "100%",
+          direction: "ltr", // Explicitly set text direction to left-to-right
+          unicodeBidi: "normal" // Ensure normal Unicode bidirectional algorithm processing
         }}
       />
     </div>

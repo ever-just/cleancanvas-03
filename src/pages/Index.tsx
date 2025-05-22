@@ -31,6 +31,7 @@ const Index = () => {
             setError("Failed to load document. Please try again.");
           }
         } else if (data) {
+          console.log("Initial content loaded:", data.content);
           setContent(data.content || '');
         }
 
@@ -41,6 +42,7 @@ const Index = () => {
               { event: 'UPDATE', schema: 'public', table: 'documents', filter: 'id=eq.shared' }, 
               (payload: any) => {
                 const newContent = payload.new.content;
+                console.log("Realtime update received:", newContent);
                 // Only update if content is different to prevent loops
                 if (newContent !== content) {
                   setContent(newContent);
@@ -64,6 +66,7 @@ const Index = () => {
   }, []);
 
   const handleContentChange = async (newContent: string) => {
+    console.log("Content change handler called with:", newContent);
     setContent(newContent);
     
     try {
@@ -75,6 +78,8 @@ const Index = () => {
       if (error) {
         console.error("Error updating document:", error);
         toast.error("Failed to save changes");
+      } else {
+        console.log("Document successfully updated");
       }
     } catch (err) {
       console.error("Update error:", err);
