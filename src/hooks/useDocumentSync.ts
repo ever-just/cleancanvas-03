@@ -26,6 +26,8 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
   
   const documentVersionRef = useRef<number>(0);
   const lastProcessedUpdateRef = useRef<DocumentUpdateInfo | null>(null);
+  // Track the last saved content to avoid unnecessary saves
+  const lastSavedContentRef = useRef<string>(initialContent);
 
   // Initialize document and set up real-time subscription
   useEffect(() => {
@@ -58,6 +60,7 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
             } else {
               console.log("Successfully created empty document");
               setContent(initialContent);
+              lastSavedContentRef.current = initialContent;
               documentVersionRef.current = 1;
             }
           } else {
@@ -68,11 +71,13 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
             if (savedContent) {
               console.log("Recovering content from local storage");
               setContent(savedContent);
+              lastSavedContentRef.current = savedContent;
             }
           }
         } else if (data) {
           console.log("Initial content loaded:", data.content, "Last updated:", data.updated_at, "Version:", data.version);
           setContent(data.content || initialContent);
+          lastSavedContentRef.current = data.content || initialContent;
           if (data.updated_at) {
             setLastSaved(new Date(data.updated_at));
           }
@@ -113,6 +118,7 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
                     
                     console.log("Applying external update from another client");
                     setContent(newContent);
+                    lastSavedContentRef.current = newContent;
                     
                     if (payload.new.updated_at) {
                       setLastSaved(new Date(payload.new.updated_at));
@@ -162,6 +168,12 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
   }, [documentId, clientId, initialContent]);
 
   const saveContent = async (newContent: string) => {
+    // Skip saving if content hasn't changed since last save
+    if (newContent === lastSavedContentRef.current) {
+      console.log("Content unchanged since last save, skipping update");
+      return;
+    }
+    
     console.log(`Saving content with length: ${newContent.length}`);
     console.log("Content sample:", newContent.substring(0, 50));
     
@@ -200,6 +212,7 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
       } else {
         console.log(`Document successfully updated in ${duration}ms:`, data);
         setLastSaved(new Date());
+        lastSavedContentRef.current = newContent;
         
         // Update last processed version information
         lastProcessedUpdateRef.current = {
@@ -220,8 +233,8 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
       documentVersionRef.current -= 1;
     } finally {
       setIsSaving(false);
-      // Reset local update flag after a delay
-      setTimeout(() => setIsLocalUpdate(false), 300);
+      // Reset local update flag after a longer delay (2.5 seconds)
+      setTimeout(() => setIsLocalUpdate(false), 2500);
     }
   };
 

@@ -12,13 +12,14 @@ interface TextEditorProps {
 
 const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProps) => {
   const [localContent, setLocalContent] = useState(content);
-  // Increase debounce time for more reliable saves
-  const debouncedContent = useDebounce(localContent, 300);
+  // Increase debounce time from 300ms to 2000ms (2 seconds)
+  const debouncedContent = useDebounce(localContent, 2000);
   const editorRef = useRef<HTMLDivElement>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
   const lastCursorPosition = useRef<{ start: number, end: number } | null>(null);
   const contentVersionRef = useRef<number>(0);
+  const lastSavedContentRef = useRef<string>(content);
   
   // Update local content when content prop changes (from other users)
   useEffect(() => {
@@ -36,6 +37,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       
       // Set the content
       setLocalContent(content);
+      lastSavedContentRef.current = content;
       
       // Update DOM directly to ensure consistency
       if (editorRef.current) {
@@ -44,10 +46,10 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       
       // Clear processing flag after a longer delay
       setTimeout(() => {
-        // Increased delay from 10ms to 50ms for more reliable cursor restoration
+        // Increased delay from 50ms to 100ms for more reliable cursor restoration
         restoreCursorPosition(editorRef.current, lastCursorPosition.current);
         setIsProcessingUpdate(false);
-      }, 50);
+      }, 100);
     }
   }, [content, localContent, isComposing, isLocalUpdate, isProcessingUpdate]);
 
@@ -58,11 +60,13 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       return;
     }
     
-    console.log("Debounced content update triggered");
-    if (debouncedContent !== content) {
+    // Check if content has actually changed and is different from last saved content
+    if (debouncedContent !== content && debouncedContent !== lastSavedContentRef.current) {
+      console.log("Debounced content update triggered");
       console.log("Sending update to parent", debouncedContent.substring(0, 50));
       // Increment content version when sending updates
       contentVersionRef.current += 1;
+      lastSavedContentRef.current = debouncedContent;
       onChange(debouncedContent);
     }
   }, [debouncedContent, onChange, content, isProcessingUpdate, isComposing]);
@@ -71,7 +75,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
   useEffect(() => {
     return () => {
       console.log("Editor unmounting, forcing save");
-      if (localContent !== content) {
+      if (localContent !== content && localContent !== lastSavedContentRef.current) {
         onChange(localContent);
       }
     };
