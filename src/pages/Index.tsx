@@ -3,9 +3,8 @@ import { useEffect, useState, useRef } from "react";
 import TextEditor from "@/components/TextEditor";
 import { useDocumentSync } from "@/hooks/useDocumentSync";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Save } from "lucide-react";
 
 const Index = () => {
   const {
@@ -22,50 +21,32 @@ const Index = () => {
     documentId: 'shared'
   });
 
-  const [timeUntilSave, setTimeUntilSave] = useState<number>(10);
   const [isDirty, setIsDirty] = useState(false);
-  const lastTimeRef = useRef<number>(Date.now());
+  const editorContent = useRef(content);
 
-  // Update the countdown timer with more consistent timing
+  // Update the local content reference when remote content changes
   useEffect(() => {
-    let interval: number | null = null;
-
-    const updateTimer = () => {
-      const now = Date.now();
-      const elapsed = (now - lastTimeRef.current) / 1000;
-      const remaining = Math.max(0, 10 - elapsed);
-      setTimeUntilSave(remaining);
-      
-      // If timer has expired and we have unsaved changes, save content
-      if (remaining === 0 && isDirty) {
-        handleContentChange(content);
-      }
-    };
-
-    if (isDirty && !isSaving) {
-      // Start the timer when content becomes dirty
-      interval = window.setInterval(updateTimer, 500);
+    if (!isLocalUpdate) {
+      editorContent.current = content;
     }
-
-    return () => {
-      if (interval) window.clearInterval(interval);
-    };
-  }, [isDirty, isSaving, content]);
+  }, [content, isLocalUpdate]);
 
   const handleContentChange = (newContent: string) => {
-    console.log("Index: Content change triggered save");
-    saveContent(newContent);
+    console.log("Index: Local content change detected");
+    editorContent.current = newContent;
+    setIsDirty(true);
+  };
+
+  const handleSave = () => {
+    console.log("Index: Save button clicked, saving content");
+    saveContent(editorContent.current);
     setIsDirty(false);
   };
 
-  const handleLocalChange = () => {
-    console.log("Index: Local change detected, marking as dirty");
-    setIsDirty(true);
-    lastTimeRef.current = Date.now(); // Reset timer on local changes
-  };
-
   const handleRefresh = () => {
+    console.log("Index: Refresh button clicked");
     refreshContent();
+    setIsDirty(false);
   };
 
   if (error) {
@@ -84,8 +65,6 @@ const Index = () => {
     );
   }
 
-  const progressValue = timeUntilSave ? (timeUntilSave / 10) * 100 : 0;
-
   return (
     <div className="min-h-screen bg-white">
       {loading ? (
@@ -96,6 +75,19 @@ const Index = () => {
         <>
           <div className="fixed top-0 right-0 p-3 z-10 flex flex-col items-end gap-2 bg-white/80 backdrop-blur-sm rounded-bl-md">
             <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleSave} 
+                disabled={isSaving || !isDirty}
+                className="h-8 px-2.5 text-xs"
+              >
+                <Save 
+                  className="h-3.5 w-3.5 mr-1" 
+                />
+                {isSaving ? 'Saving...' : 'Save'}
+              </Button>
+              
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -115,32 +107,17 @@ const Index = () => {
                 </Badge>
               )}
               
-              {isSaving ? (
-                <span className="text-xs text-gray-600 flex items-center">
-                  <span className="animate-pulse mr-1">●</span>
-                  Saving...
-                </span>
-              ) : lastSaved ? (
+              {!isDirty && lastSaved && !isSaving && (
                 <span className="text-xs text-gray-600">
                   Last saved: {lastSaved.toLocaleTimeString()}
                 </span>
-              ) : null}
+              )}
             </div>
-            
-            {isDirty && !isSaving && (
-              <div className="w-48">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>Auto-save in {Math.ceil(timeUntilSave)}s</span>
-                </div>
-                <Progress value={progressValue} className="h-1" />
-              </div>
-            )}
           </div>
           
           <TextEditor 
             content={content} 
             onChange={handleContentChange} 
-            onLocalChange={handleLocalChange}
             isLocalUpdate={isLocalUpdate}
           />
         </>

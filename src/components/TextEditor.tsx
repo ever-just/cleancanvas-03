@@ -1,137 +1,62 @@
 
 import { useEffect, useRef, useState } from "react";
-import { useDebounce } from "@/hooks/useDebounce";
 import { cn } from "@/lib/utils";
-import { saveCursorPosition, restoreCursorPosition, updateContentPreservingCursor } from "@/utils/cursorUtils";
+import { saveCursorPosition, restoreCursorPosition } from "@/utils/cursorUtils";
 
 interface TextEditorProps {
   content: string;
   onChange: (content: string) => void;
-  onLocalChange?: () => void;
   isLocalUpdate?: boolean;
 }
 
-const TextEditor = ({ content, onChange, onLocalChange, isLocalUpdate = false }: TextEditorProps) => {
-  const [localContent, setLocalContent] = useState(content);
-  // Increase debounce time from 2s to 5s for better typing experience
-  const debouncedContent = useDebounce(localContent, 5000);
+const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
   const lastCursorPosition = useRef<{ start: number, end: number } | null>(null);
-  const contentVersionRef = useRef<number>(0);
-  const lastSavedContentRef = useRef<string>(content);
-  const [isDirty, setIsDirty] = useState(false);
-  const nextAutoSaveRef = useRef<number>(0);
-  
-  // Update local content when content prop changes (from other users)
+  const isInitialMount = useRef(true);
+
+  // Handle external content updates (from other users or refresh)
   useEffect(() => {
     if (isLocalUpdate || isProcessingUpdate || isComposing) {
-      console.log("Skipping external update during local edit or composition");
+      console.log("TextEditor: Skipping external update during local edit or composition");
       return;
     }
     
-    if (content !== localContent) {
-      console.log("Applying external update from props:", content.substring(0, 50));
-      setIsProcessingUpdate(true);
-      
-      // Save cursor position before changing content
-      lastCursorPosition.current = saveCursorPosition(editorRef.current);
-      
-      // Set the content
-      setLocalContent(content);
-      lastSavedContentRef.current = content;
-      setIsDirty(false);
-      
-      // Update DOM directly to ensure consistency
-      if (editorRef.current) {
-        editorRef.current.innerText = content;
-      }
-      
-      // Adaptive timing based on content size for more reliable cursor restoration
-      const contentSize = content.length;
-      const restorationDelay = Math.min(100 + Math.floor(contentSize / 1000), 300);
-      
-      // Clear processing flag after a longer delay
-      setTimeout(() => {
-        restoreCursorPosition(editorRef.current, lastCursorPosition.current);
-        setIsProcessingUpdate(false);
-      }, restorationDelay);
-    }
-  }, [content, localContent, isComposing, isLocalUpdate, isProcessingUpdate]);
-
-  // Send debounced content updates to parent
-  useEffect(() => {
-    if (isProcessingUpdate || isComposing) {
-      console.log("Skipping debounced update during processing or composition");
-      return;
+    console.log("TextEditor: Applying external update:", content.substring(0, 50));
+    setIsProcessingUpdate(true);
+    
+    // Save cursor position before changing content
+    lastCursorPosition.current = saveCursorPosition(editorRef.current);
+    
+    // Directly update the DOM for consistency
+    if (editorRef.current) {
+      editorRef.current.innerText = content;
     }
     
-    // Check if content has actually changed and is different from last saved content
-    if (debouncedContent !== content && debouncedContent !== lastSavedContentRef.current) {
-      console.log("Debounced content update triggered");
-      console.log("Sending update to parent", debouncedContent.substring(0, 50));
-      // Increment content version when sending updates
-      contentVersionRef.current += 1;
-      lastSavedContentRef.current = debouncedContent;
-      setIsDirty(false);
-      onChange(debouncedContent);
-      
-      // Reset the auto-save timer when a debounce save occurs
-      nextAutoSaveRef.current = Date.now() + 10000;
+    // Adaptive timing based on content size for more reliable cursor restoration
+    const contentSize = content.length;
+    const restorationDelay = Math.min(100 + Math.floor(contentSize / 1000), 300);
+    
+    // Restore cursor position after a delay
+    setTimeout(() => {
+      restoreCursorPosition(editorRef.current, lastCursorPosition.current);
+      setIsProcessingUpdate(false);
+    }, restorationDelay);
+  }, [content, isLocalUpdate, isProcessingUpdate, isComposing]);
+
+  // Ensure content is properly initialized on mount
+  useEffect(() => {
+    if (isInitialMount.current && editorRef.current) {
+      console.log("TextEditor: Initial content set");
+      editorRef.current.innerText = content;
+      isInitialMount.current = false;
     }
-  }, [debouncedContent, onChange, content, isProcessingUpdate, isComposing]);
-
-  // Add periodic save functionality (every 10 seconds)
-  useEffect(() => {
-    // Initialize the next auto-save time
-    nextAutoSaveRef.current = Date.now() + 10000;
-    
-    const periodicSaveInterval = setInterval(() => {
-      // Only save if there are unsaved changes (isDirty) and we're not already processing updates
-      if (isDirty && !isProcessingUpdate && !isComposing && 
-          localContent !== lastSavedContentRef.current) {
-        console.log("Periodic save triggered after 10 seconds");
-        lastSavedContentRef.current = localContent;
-        setIsDirty(false);
-        onChange(localContent);
-        
-        // Reset the auto-save timer
-        nextAutoSaveRef.current = Date.now() + 10000;
-      }
-    }, 10000);
-    
-    // Update the countdown every second
-    const countdownInterval = setInterval(() => {
-      // Force a re-render to update countdown
-      setIsDirty(prev => {
-        // Only update if actually dirty to prevent unnecessary re-renders
-        if (localContent !== lastSavedContentRef.current) {
-          return true;
-        }
-        return prev;
-      });
-    }, 1000);
-    
-    return () => {
-      clearInterval(periodicSaveInterval);
-      clearInterval(countdownInterval);
-    };
-  }, [localContent, onChange, isProcessingUpdate, isComposing]);
-
-  // Force a save when the component unmounts
-  useEffect(() => {
-    return () => {
-      console.log("Editor unmounting, forcing save");
-      if (localContent !== content && localContent !== lastSavedContentRef.current) {
-        onChange(localContent);
-      }
-    };
-  }, [localContent, content, onChange]);
+  }, [content]);
 
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
     if (isProcessingUpdate) {
-      console.log("Skipping input during processing");
+      console.log("TextEditor: Skipping input during processing");
       return;
     }
     
@@ -139,76 +64,47 @@ const TextEditor = ({ content, onChange, onLocalChange, isLocalUpdate = false }:
     lastCursorPosition.current = saveCursorPosition(editorRef.current);
     
     try {
-      // Get the actual text content instead of innerHTML
+      // Get the actual text content
       const newContent = e.currentTarget.innerText;
-      console.log("Text input detected, length:", newContent.length);
+      console.log("TextEditor: Input detected, length:", newContent.length);
       
-      if (newContent !== localContent) {
-        setLocalContent(newContent);
-        setIsDirty(true); // Mark as dirty when content changes
-        
-        // Notify parent of local change for countdown timer
-        if (onLocalChange) {
-          onLocalChange();
-        }
-      }
+      // Notify parent of content change
+      onChange(newContent);
     } catch (e) {
-      console.error("Error handling input:", e);
+      console.error("TextEditor: Error handling input:", e);
     }
   };
 
-  // Composition events are used for IME (Input Method Editor) input like for Asian languages
+  // Composition events for IME input (Asian languages, etc.)
   const handleCompositionStart = () => {
-    console.log("Composition started");
+    console.log("TextEditor: Composition started");
     setIsComposing(true);
   };
 
   const handleCompositionEnd = (e: React.CompositionEvent<HTMLDivElement>) => {
-    console.log("Composition ended");
+    console.log("TextEditor: Composition ended");
+    
     // Make sure we have the final text after composition ends
     if (e.currentTarget) {
       const finalText = e.currentTarget.innerText;
-      setLocalContent(finalText);
-      setIsDirty(true);
-      
-      // Notify parent of local change
-      if (onLocalChange) {
-        onLocalChange();
-      }
+      onChange(finalText);
     }
     
     // Small delay to ensure content is processed before allowing new updates
     setTimeout(() => {
       setIsComposing(false);
-    }, 100); // Increased from 50ms to 100ms
+    }, 100);
   };
 
-  // Handle focus and blur events to manage cursor position
+  // Handle focus and blur events
   const handleFocus = () => {
-    console.log("Editor focused");
+    console.log("TextEditor: Editor focused");
   };
   
   const handleBlur = () => {
-    console.log("Editor blurred, saving cursor position");
+    console.log("TextEditor: Editor blurred, saving cursor position");
     lastCursorPosition.current = saveCursorPosition(editorRef.current);
-    
-    // Save on blur if content is dirty
-    if (isDirty && localContent !== lastSavedContentRef.current) {
-      console.log("Saving on blur");
-      lastSavedContentRef.current = localContent;
-      setIsDirty(false);
-      onChange(localContent);
-    }
   };
-  
-  // Calculate time until next auto-save
-  const getTimeUntilNextSave = () => {
-    if (!isDirty) return null;
-    const remainingTime = Math.max(0, Math.floor((nextAutoSaveRef.current - Date.now()) / 1000));
-    return remainingTime;
-  };
-
-  const secondsUntilSave = getTimeUntilNextSave();
 
   return (
     <div className="min-h-screen flex flex-col">
