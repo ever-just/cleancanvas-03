@@ -6,64 +6,61 @@ import { saveCursorPosition, restoreCursorPosition } from "@/utils/cursorUtils";
 interface TextEditorProps {
   content: string;
   onChange: (content: string) => void;
-  isLocalUpdate?: boolean;
+  value: string;
 }
 
-const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProps) => {
+const TextEditor = ({ content, onChange, value }: TextEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isComposing, setIsComposing] = useState(false);
-  const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
   const lastCursorPosition = useRef<{ start: number, end: number } | null>(null);
   const isInitialMount = useRef(true);
 
-  // Handle external content updates (from other users or refresh)
-  useEffect(() => {
-    if (isLocalUpdate || isProcessingUpdate || isComposing) {
-      console.log("TextEditor: Skipping external update during local edit or composition");
-      return;
-    }
-    
-    console.log("TextEditor: Applying external update:", content.substring(0, 50));
-    setIsProcessingUpdate(true);
-    
-    // Save cursor position before changing content
-    lastCursorPosition.current = saveCursorPosition(editorRef.current);
-    
-    // Directly update the DOM for consistency
-    if (editorRef.current) {
-      editorRef.current.innerText = content;
-    }
-    
-    // Adaptive timing based on content size for more reliable cursor restoration
-    const contentSize = content.length;
-    const restorationDelay = Math.min(100 + Math.floor(contentSize / 1000), 300);
-    
-    // Restore cursor position after a delay
-    setTimeout(() => {
-      restoreCursorPosition(editorRef.current, lastCursorPosition.current);
-      setIsProcessingUpdate(false);
-    }, restorationDelay);
-  }, [content, isLocalUpdate, isProcessingUpdate, isComposing]);
-
-  // Ensure content is properly initialized on mount
+  // Initialize editor content on first render
   useEffect(() => {
     if (isInitialMount.current && editorRef.current) {
-      console.log("TextEditor: Initial content set");
-      editorRef.current.innerText = content;
+      console.log("TextEditor: Initial content set on mount:", value.substring(0, 50));
+      editorRef.current.innerText = value || content || '';
       isInitialMount.current = false;
     }
-  }, [content]);
+  }, [content, value]);
+
+  // Update editor content when value prop changes (from parent)
+  useEffect(() => {
+    if (!isInitialMount.current && editorRef.current) {
+      console.log("TextEditor: Value prop changed:", value.substring(0, 50));
+      
+      // Don't update if we're in the middle of composing (IME input)
+      if (isComposing) {
+        console.log("TextEditor: Skipping update during composition");
+        return;
+      }
+      
+      // Save cursor position before updating content
+      lastCursorPosition.current = saveCursorPosition(editorRef.current);
+      
+      // Only update if the content is different
+      if (editorRef.current.innerText !== value) {
+        console.log("TextEditor: Updating editor content");
+        editorRef.current.innerText = value || '';
+        
+        // Restore cursor position
+        setTimeout(() => {
+          restoreCursorPosition(editorRef.current, lastCursorPosition.current);
+        }, 10);
+      }
+    }
+  }, [value, isComposing]);
 
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    if (isProcessingUpdate) {
-      console.log("TextEditor: Skipping input during processing");
+    if (isComposing) {
+      console.log("TextEditor: Input during composition, deferring update");
       return;
     }
     
-    // Save cursor position
-    lastCursorPosition.current = saveCursorPosition(editorRef.current);
-    
     try {
+      // Save cursor position
+      lastCursorPosition.current = saveCursorPosition(editorRef.current);
+      
       // Get the actual text content
       const newContent = e.currentTarget.innerText;
       console.log("TextEditor: Input detected, length:", newContent.length);
@@ -85,13 +82,11 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     console.log("TextEditor: Composition ended");
     
     // Make sure we have the final text after composition ends
-    if (e.currentTarget) {
-      const finalText = e.currentTarget.innerText;
-      onChange(finalText);
-    }
-    
-    // Small delay to ensure content is processed before allowing new updates
     setTimeout(() => {
+      if (e.currentTarget) {
+        const finalText = e.currentTarget.innerText;
+        onChange(finalText);
+      }
       setIsComposing(false);
     }, 100);
   };

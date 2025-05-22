@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from 'uuid';
@@ -17,13 +17,7 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [clientId] = useState(() => uuidv4()); // Generate unique client ID
-  const [isLocalUpdate, setIsLocalUpdate] = useState(false);
   
-  // Track document version and timestamps
-  const documentVersionRef = useRef<number>(0);
-  const lastServerTimestampRef = useRef<number>(0);
-  const lastSavedContentRef = useRef<string>(initialContent);
-
   // Initialize document and set up real-time subscription
   useEffect(() => {
     console.log("=== DOCUMENT SYNC INITIALIZATION ===");
@@ -56,9 +50,7 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
             } else {
               console.log("Successfully created empty document");
               setContent(initialContent);
-              lastSavedContentRef.current = initialContent;
-              documentVersionRef.current = 1;
-              lastServerTimestampRef.current = Date.now();
+              setLastSaved(new Date());
             }
           } else {
             console.error("Error fetching document:", error);
@@ -68,24 +60,19 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
             if (savedContent) {
               console.log("Recovering content from local storage");
               setContent(savedContent);
-              lastSavedContentRef.current = savedContent;
             }
           }
         } else if (data) {
-          console.log("Initial content loaded. Updated at:", data.updated_at, "Version:", data.version);
+          console.log("Initial content loaded. Updated at:", data.updated_at);
+          console.log("Content preview:", data.content ? data.content.substring(0, 50) : "empty");
           setContent(data.content || initialContent);
-          lastSavedContentRef.current = data.content || initialContent;
+          
           if (data.updated_at) {
-            const serverTimestamp = new Date(data.updated_at).getTime();
             setLastSaved(new Date(data.updated_at));
-            lastServerTimestampRef.current = serverTimestamp;
-          }
-          if (data.version) {
-            documentVersionRef.current = data.version;
           }
         }
 
-        // Set up real-time subscription with improved update handling
+        // Set up real-time subscription
         const channel = supabase
           .channel('documents-changes')
           .on('postgres_changes', 
@@ -94,14 +81,6 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
                 console.log("=== REALTIME UPDATE RECEIVED ===");
                 const newContent = payload.new.content;
                 const updateClientId = payload.new.client_id;
-                const updateVersion = payload.new.version || 0;
-                const updateTimestamp = new Date(payload.new.updated_at).getTime();
-                
-                console.log(`Update from client: ${updateClientId}`, 
-                  `\n- Server timestamp: ${new Date(updateTimestamp).toLocaleTimeString()}`,
-                  `\n- Local timestamp: ${lastServerTimestampRef.current ? new Date(lastServerTimestampRef.current).toLocaleTimeString() : 'none'}`,
-                  `\n- Version: ${updateVersion} vs local: ${documentVersionRef.current}`
-                );
                 
                 // Skip updates from the same client (our own updates that got echoed back)
                 if (updateClientId === clientId) {
@@ -109,21 +88,14 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
                   return;
                 }
                 
-                // Accept update if the timestamp is newer than our last processed timestamp
-                if (updateTimestamp > lastServerTimestampRef.current) {
-                  console.log("Applying external update with newer timestamp");
-                  setContent(newContent);
-                  lastSavedContentRef.current = newContent;
-                  
-                  if (payload.new.updated_at) {
-                    setLastSaved(new Date(payload.new.updated_at));
-                  }
-                  
-                  lastServerTimestampRef.current = updateTimestamp;
-                  documentVersionRef.current = updateVersion;
-                } else {
-                  console.log("Ignoring update with older or same timestamp");
+                console.log("Applying external update");
+                setContent(newContent);
+                
+                if (payload.new.updated_at) {
+                  setLastSaved(new Date(payload.new.updated_at));
                 }
+                
+                toast.info("Document was updated by another user");
               })
           .subscribe();
 
@@ -167,29 +139,25 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
         
       if (error) {
         console.error("Error refreshing document:", error);
-        toast.error("Failed to refresh document");
-        return;
+        throw new Error("Failed to refresh document");
       }
       
       if (data) {
-        const serverTimestamp = new Date(data.updated_at).getTime();
+        console.log("Refreshing with server content:", data.content?.substring(0, 50));
+        setContent(data.content || "");
         
-        // Always update with server content on manual refresh
-        console.log("Refreshing with server content");
-        setContent(data.content);
-        lastSavedContentRef.current = data.content;
-        setLastSaved(new Date(data.updated_at));
-        lastServerTimestampRef.current = serverTimestamp;
-        documentVersionRef.current = data.version;
-        
-        toast.success("Document refreshed from server");
+        if (data.updated_at) {
+          setLastSaved(new Date(data.updated_at));
+        }
       }
+      
+      console.log("=== MANUAL REFRESH COMPLETED ===");
+      return Promise.resolve();
     } catch (err) {
       console.error("Refresh error:", err);
-      toast.error("Failed to refresh document");
+      throw err;
     } finally {
       setIsRefreshing(false);
-      console.log("=== MANUAL REFRESH COMPLETED ===");
     }
   };
 
@@ -197,70 +165,50 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
   const saveContent = async (newContent: string) => {
     console.log("=== SAVE CONTENT OPERATION STARTED ===");
     
-    // Skip saving if content hasn't changed
-    if (newContent === lastSavedContentRef.current) {
-      console.log("Content unchanged since last save, skipping update");
-      return;
+    // Skip saving if content is empty
+    if (!newContent || newContent.trim() === "") {
+      console.log("Empty content, skipping save");
+      return Promise.reject(new Error("Cannot save empty content"));
     }
     
     console.log(`Saving content with length: ${newContent.length}`);
     console.log("Content sample:", newContent.substring(0, 50));
     
-    setIsLocalUpdate(true);
-    setContent(newContent);
     setIsSaving(true);
     
     // Save to localStorage as a backup
     localStorage.setItem(`document_${documentId}_content`, newContent);
     
     try {
-      // Increment version for this update
-      documentVersionRef.current += 1;
-      const currentVersion = documentVersionRef.current;
-      
-      console.log("Saving to Supabase with client ID:", clientId, "Version:", currentVersion);
-      const startTime = Date.now();
+      console.log("Saving to Supabase with client ID:", clientId);
       const { data, error } = await supabase
         .from('documents')
         .update({ 
           content: newContent,
-          client_id: clientId,
-          version: currentVersion
+          client_id: clientId
         })
         .eq('id', documentId)
         .select();
         
-      const duration = Date.now() - startTime;
-      
       if (error) {
         console.error("Error updating document:", error);
-        toast.error("Failed to save changes");
-        // Revert version increment on error
-        documentVersionRef.current -= 1;
+        throw error;
       } else {
-        console.log(`Document successfully updated in ${duration}ms:`, data);
+        console.log("Document successfully updated:", data);
         const newTimestamp = new Date();
+        setContent(newContent);
         setLastSaved(newTimestamp);
-        lastSavedContentRef.current = newContent;
-        lastServerTimestampRef.current = newTimestamp.getTime();
         
         console.log("Update complete - New timestamp:", newTimestamp.toLocaleTimeString());
-        
-        toast.success("Changes saved", { 
-          id: "save-notification",
-          duration: 2000 
-        });
       }
+      
+      console.log("=== SAVE CONTENT OPERATION COMPLETED ===");
+      return Promise.resolve();
     } catch (err) {
       console.error("Update error:", err);
-      toast.error("Failed to save changes");
-      // Revert version increment on error
-      documentVersionRef.current -= 1;
+      throw err;
     } finally {
       setIsSaving(false);
-      // Reset local update flag after a delay to prevent flickering
-      setTimeout(() => setIsLocalUpdate(false), 1000);
-      console.log("=== SAVE CONTENT OPERATION COMPLETED ===");
     }
   };
 
@@ -272,7 +220,6 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
     isSaving,
     isRefreshing,
     lastSaved,
-    isLocalUpdate,
     clientId,
     saveContent,
     refreshContent

@@ -5,6 +5,7 @@ import { useDocumentSync } from "@/hooks/useDocumentSync";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Save } from "lucide-react";
+import { toast } from "sonner";
 
 const Index = () => {
   const {
@@ -14,7 +15,6 @@ const Index = () => {
     isSaving,
     isRefreshing,
     lastSaved,
-    isLocalUpdate,
     saveContent,
     refreshContent
   } = useDocumentSync({
@@ -22,31 +22,64 @@ const Index = () => {
   });
 
   const [isDirty, setIsDirty] = useState(false);
-  const editorContent = useRef(content);
-
-  // Update the local content reference when remote content changes
+  const [localContent, setLocalContent] = useState("");
+  
+  // Set initial content when it's loaded
   useEffect(() => {
-    if (!isLocalUpdate) {
-      editorContent.current = content;
+    if (!loading && content) {
+      console.log("Index: Setting initial editor content:", content.substring(0, 50));
+      setLocalContent(content);
     }
-  }, [content, isLocalUpdate]);
+  }, [loading, content]);
 
   const handleContentChange = (newContent: string) => {
-    console.log("Index: Local content change detected");
-    editorContent.current = newContent;
+    console.log("Index: Content changed by user, length:", newContent.length);
+    setLocalContent(newContent);
     setIsDirty(true);
   };
 
   const handleSave = () => {
-    console.log("Index: Save button clicked, saving content");
-    saveContent(editorContent.current);
-    setIsDirty(false);
+    console.log("Index: Save button clicked");
+    
+    if (!localContent || localContent.trim() === "") {
+      toast.error("Cannot save empty content");
+      return;
+    }
+    
+    toast.promise(
+      async () => {
+        await saveContent(localContent);
+        setIsDirty(false);
+      },
+      {
+        loading: "Saving document...",
+        success: "Document saved successfully",
+        error: "Failed to save document"
+      }
+    );
   };
 
   const handleRefresh = () => {
     console.log("Index: Refresh button clicked");
-    refreshContent();
-    setIsDirty(false);
+    
+    // If there are unsaved changes, confirm before refreshing
+    if (isDirty) {
+      if (!confirm("You have unsaved changes. Refresh will discard them. Continue?")) {
+        return;
+      }
+    }
+    
+    toast.promise(
+      async () => {
+        await refreshContent();
+        setIsDirty(false);
+      },
+      {
+        loading: "Refreshing document...",
+        success: "Document refreshed",
+        error: "Failed to refresh document"
+      }
+    );
   };
 
   if (error) {
@@ -116,9 +149,9 @@ const Index = () => {
           </div>
           
           <TextEditor 
-            content={content} 
-            onChange={handleContentChange} 
-            isLocalUpdate={isLocalUpdate}
+            content={loading ? "" : content}
+            onChange={handleContentChange}
+            value={localContent}
           />
         </>
       )}
