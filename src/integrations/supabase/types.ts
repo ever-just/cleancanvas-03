@@ -11,16 +11,19 @@ export type Database = {
     Tables: {
       documents: {
         Row: {
+          client_id: string | null
           content: string | null
           id: string
           updated_at: string | null
         }
         Insert: {
+          client_id?: string | null
           content?: string | null
           id: string
           updated_at?: string | null
         }
         Update: {
+          client_id?: string | null
           content?: string | null
           id?: string
           updated_at?: string | null
