@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { cn } from "@/lib/utils";
+import { saveCursorPosition, restoreCursorPosition, updateContentPreservingCursor } from "@/utils/cursorUtils";
 
 interface TextEditorProps {
   content: string;
@@ -19,94 +20,6 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
   const lastCursorPosition = useRef<{ start: number, end: number } | null>(null);
   const contentVersionRef = useRef<number>(0);
   
-  // Store cursor position before updating content
-  const saveCursorPosition = () => {
-    if (document.activeElement !== editorRef.current) return;
-    
-    const selection = window.getSelection();
-    if (!selection || !editorRef.current) return;
-    
-    try {
-      // Calculate cursor positions relative to the editor content
-      const range = selection.getRangeAt(0);
-      const preSelectionRange = range.cloneRange();
-      preSelectionRange.selectNodeContents(editorRef.current);
-      preSelectionRange.setEnd(range.startContainer, range.startOffset);
-      const start = preSelectionRange.toString().length;
-      
-      const end = start + range.toString().length;
-      lastCursorPosition.current = { start, end };
-      
-      console.log("Saved cursor position:", lastCursorPosition.current);
-    } catch (e) {
-      console.warn("Failed to save cursor position:", e);
-    }
-  };
-  
-  // Restore cursor position after updating content
-  const restoreCursorPosition = () => {
-    if (!lastCursorPosition.current || !editorRef.current) return;
-    
-    // Only restore if editor has focus
-    if (document.activeElement !== editorRef.current) return;
-    
-    console.log("Attempting to restore cursor position:", lastCursorPosition.current);
-    
-    try {
-      const selection = window.getSelection();
-      if (!selection) return;
-      
-      // Find the position to place the cursor
-      const { start, end } = lastCursorPosition.current;
-      
-      // Create a walker to find the correct text node and offset
-      let currentPos = 0;
-      let startNode = null, startOffset = 0, endNode = null, endOffset = 0;
-      
-      const walker = document.createTreeWalker(
-        editorRef.current,
-        NodeFilter.SHOW_TEXT,
-        null
-      );
-      
-      // Find start position
-      let node;
-      while ((node = walker.nextNode())) {
-        const nodeLength = node.nodeValue?.length || 0;
-        if (currentPos + nodeLength >= start) {
-          startNode = node;
-          startOffset = start - currentPos;
-          break;
-        }
-        currentPos += nodeLength;
-      }
-      
-      // Find end position
-      currentPos = 0;
-      walker.currentNode = editorRef.current;
-      while ((node = walker.nextNode())) {
-        const nodeLength = node.nodeValue?.length || 0;
-        if (currentPos + nodeLength >= end) {
-          endNode = node;
-          endOffset = end - currentPos;
-          break;
-        }
-        currentPos += nodeLength;
-      }
-      
-      // Set selection to saved position
-      if (startNode && endNode) {
-        const range = document.createRange();
-        range.setStart(startNode, startOffset);
-        range.setEnd(endNode, endOffset);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    } catch (e) {
-      console.warn("Could not restore cursor position:", e);
-    }
-  };
-  
   // Update local content when content prop changes (from other users)
   useEffect(() => {
     if (isLocalUpdate || isProcessingUpdate || isComposing) {
@@ -119,7 +32,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       setIsProcessingUpdate(true);
       
       // Save cursor position before changing content
-      saveCursorPosition();
+      lastCursorPosition.current = saveCursorPosition(editorRef.current);
       
       // Set the content
       setLocalContent(content);
@@ -132,7 +45,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       // Clear processing flag after a longer delay
       setTimeout(() => {
         // Increased delay from 10ms to 50ms for more reliable cursor restoration
-        restoreCursorPosition();
+        restoreCursorPosition(editorRef.current, lastCursorPosition.current);
         setIsProcessingUpdate(false);
       }, 50);
     }
@@ -171,7 +84,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     }
     
     // Save cursor position
-    saveCursorPosition();
+    lastCursorPosition.current = saveCursorPosition(editorRef.current);
     
     try {
       // Get the actual text content instead of innerHTML
@@ -210,7 +123,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
   
   const handleBlur = () => {
     console.log("Editor blurred, saving cursor position");
-    saveCursorPosition();
+    lastCursorPosition.current = saveCursorPosition(editorRef.current);
   };
 
   return (
