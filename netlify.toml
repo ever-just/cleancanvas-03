@@ -23,3 +23,4 @@
 # IMPORTANT: Set VITE_SOCKET_URL environment variable in Netlify dashboard
 # to point to your deployed Render Socket.io server URL, for example:
 # VITE_SOCKET_URL=https://your-socket-app.onrender.com
+
