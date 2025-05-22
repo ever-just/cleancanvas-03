@@ -1,12 +1,14 @@
 
 import { io, Socket } from 'socket.io-client';
 
-// Default to a local development server if no environment variable is set
-// In production, this would be set to your actual Socket.io server URL
+// Get Socket.io server URL from environment variable or use fallback
+// In production, this should be set to your Render Socket.io server URL
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
 let socket: Socket | null = null;
 let socketDisconnectTimeout: number | null = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
 
 /**
  * Initialize and get socket connection
@@ -17,14 +19,17 @@ export const getSocket = (): Socket => {
     console.log('Initializing socket connection to:', SOCKET_URL);
     
     socket = io(SOCKET_URL, {
-      reconnectionAttempts: 5,
+      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
       reconnectionDelay: 1000,
       autoConnect: true,
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      withCredentials: false // Important for cross-origin requests
     });
     
     socket.on('connect', () => {
       console.log('Socket connected with ID:', socket?.id);
+      // Reset reconnect attempts on successful connection
+      reconnectAttempts = 0;
       if (socketDisconnectTimeout) {
         window.clearTimeout(socketDisconnectTimeout);
         socketDisconnectTimeout = null;
@@ -33,6 +38,11 @@ export const getSocket = (): Socket => {
     
     socket.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
+      reconnectAttempts++;
+      
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.warn(`Failed to connect after ${MAX_RECONNECT_ATTEMPTS} attempts. Check server URL and CORS settings.`);
+      }
     });
     
     socket.on('disconnect', (reason) => {
