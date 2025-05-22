@@ -233,8 +233,8 @@ export const useDocumentSync = ({ documentId, initialContent = "" }: UseDocument
       documentVersionRef.current -= 1;
     } finally {
       setIsSaving(false);
-      // Reset local update flag after a longer delay (2.5 seconds)
-      setTimeout(() => setIsLocalUpdate(false), 2500);
+      // Reset local update flag after a longer delay (5 seconds) - increased from 2.5s
+      setTimeout(() => setIsLocalUpdate(false), 5000);
     }
   };
 

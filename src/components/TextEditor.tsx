@@ -12,14 +12,16 @@ interface TextEditorProps {
 
 const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProps) => {
   const [localContent, setLocalContent] = useState(content);
-  // Increase debounce time from 300ms to 2000ms (2 seconds)
-  const debouncedContent = useDebounce(localContent, 2000);
+  // Increase debounce time from 2s to 5s for better typing experience
+  const debouncedContent = useDebounce(localContent, 5000);
   const editorRef = useRef<HTMLDivElement>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
   const lastCursorPosition = useRef<{ start: number, end: number } | null>(null);
   const contentVersionRef = useRef<number>(0);
   const lastSavedContentRef = useRef<string>(content);
+  const [isDirty, setIsDirty] = useState(false);
+  const nextAutoSaveRef = useRef<number>(0);
   
   // Update local content when content prop changes (from other users)
   useEffect(() => {
@@ -38,18 +40,22 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       // Set the content
       setLocalContent(content);
       lastSavedContentRef.current = content;
+      setIsDirty(false);
       
       // Update DOM directly to ensure consistency
       if (editorRef.current) {
         editorRef.current.innerText = content;
       }
       
+      // Adaptive timing based on content size for more reliable cursor restoration
+      const contentSize = content.length;
+      const restorationDelay = Math.min(100 + Math.floor(contentSize / 1000), 300);
+      
       // Clear processing flag after a longer delay
       setTimeout(() => {
-        // Increased delay from 50ms to 100ms for more reliable cursor restoration
         restoreCursorPosition(editorRef.current, lastCursorPosition.current);
         setIsProcessingUpdate(false);
-      }, 100);
+      }, restorationDelay);
     }
   }, [content, localContent, isComposing, isLocalUpdate, isProcessingUpdate]);
 
@@ -67,9 +73,50 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       // Increment content version when sending updates
       contentVersionRef.current += 1;
       lastSavedContentRef.current = debouncedContent;
+      setIsDirty(false);
       onChange(debouncedContent);
+      
+      // Reset the auto-save timer when a debounce save occurs
+      nextAutoSaveRef.current = Date.now() + 10000;
     }
   }, [debouncedContent, onChange, content, isProcessingUpdate, isComposing]);
+
+  // Add periodic save functionality (every 10 seconds)
+  useEffect(() => {
+    // Initialize the next auto-save time
+    nextAutoSaveRef.current = Date.now() + 10000;
+    
+    const periodicSaveInterval = setInterval(() => {
+      // Only save if there are unsaved changes (isDirty) and we're not already processing updates
+      if (isDirty && !isProcessingUpdate && !isComposing && 
+          localContent !== lastSavedContentRef.current) {
+        console.log("Periodic save triggered after 10 seconds");
+        lastSavedContentRef.current = localContent;
+        setIsDirty(false);
+        onChange(localContent);
+        
+        // Reset the auto-save timer
+        nextAutoSaveRef.current = Date.now() + 10000;
+      }
+    }, 10000);
+    
+    // Update the countdown every second
+    const countdownInterval = setInterval(() => {
+      // Force a re-render to update countdown
+      setIsDirty(prev => {
+        // Only update if actually dirty to prevent unnecessary re-renders
+        if (localContent !== lastSavedContentRef.current) {
+          return true;
+        }
+        return prev;
+      });
+    }, 1000);
+    
+    return () => {
+      clearInterval(periodicSaveInterval);
+      clearInterval(countdownInterval);
+    };
+  }, [localContent, onChange, isProcessingUpdate, isComposing]);
 
   // Force a save when the component unmounts
   useEffect(() => {
@@ -94,7 +141,11 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
       // Get the actual text content instead of innerHTML
       const newContent = e.currentTarget.innerText;
       console.log("Text input detected, length:", newContent.length);
-      setLocalContent(newContent);
+      
+      if (newContent !== localContent) {
+        setLocalContent(newContent);
+        setIsDirty(true); // Mark as dirty when content changes
+      }
     } catch (e) {
       console.error("Error handling input:", e);
     }
@@ -112,12 +163,13 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     if (e.currentTarget) {
       const finalText = e.currentTarget.innerText;
       setLocalContent(finalText);
+      setIsDirty(true);
     }
     
     // Small delay to ensure content is processed before allowing new updates
     setTimeout(() => {
       setIsComposing(false);
-    }, 50); // Increased from 10ms to 50ms
+    }, 100); // Increased from 50ms to 100ms
   };
 
   // Handle focus and blur events to manage cursor position
@@ -128,7 +180,24 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
   const handleBlur = () => {
     console.log("Editor blurred, saving cursor position");
     lastCursorPosition.current = saveCursorPosition(editorRef.current);
+    
+    // Save on blur if content is dirty
+    if (isDirty && localContent !== lastSavedContentRef.current) {
+      console.log("Saving on blur");
+      lastSavedContentRef.current = localContent;
+      setIsDirty(false);
+      onChange(localContent);
+    }
   };
+  
+  // Calculate time until next auto-save
+  const getTimeUntilNextSave = () => {
+    if (!isDirty) return null;
+    const remainingTime = Math.max(0, Math.floor((nextAutoSaveRef.current - Date.now()) / 1000));
+    return remainingTime;
+  };
+
+  const secondsUntilSave = getTimeUntilNextSave();
 
   return (
     <div className="min-h-screen flex flex-col">
