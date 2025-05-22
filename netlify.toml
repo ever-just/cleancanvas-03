@@ -1,0 +1,21 @@
+
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+# Redirects and rewrites for SPA routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[build.environment]
+  # Set default environment variables for the build
+  NODE_VERSION = "18"
+
+[dev]
+  command = "npm run dev"
+  port = 3000
+  targetPort = 5173
+  publish = "dist"
+  framework = "#custom"

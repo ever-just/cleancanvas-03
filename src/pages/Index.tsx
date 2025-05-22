@@ -1,7 +1,7 @@
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import TextEditor from "@/components/TextEditor";
-import { useDocumentSync } from "@/hooks/useDocumentSync";
+import { useSocketSync } from "@/hooks/useSocketSync";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Save } from "lucide-react";
@@ -17,7 +17,7 @@ const Index = () => {
     lastSaved,
     saveContent,
     refreshContent
-  } = useDocumentSync({
+  } = useSocketSync({
     documentId: 'shared'
   });
 
