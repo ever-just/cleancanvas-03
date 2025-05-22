@@ -11,12 +11,13 @@ interface TextEditorProps {
 
 const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProps) => {
   const [localContent, setLocalContent] = useState(content);
-  // Reduce debounce time even further for more responsive saves
-  const debouncedContent = useDebounce(localContent, 200);
+  // Increase debounce time for more reliable saves
+  const debouncedContent = useDebounce(localContent, 300);
   const editorRef = useRef<HTMLDivElement>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
   const lastCursorPosition = useRef<{ start: number, end: number } | null>(null);
+  const contentVersionRef = useRef<number>(0);
   
   // Store cursor position before updating content
   const saveCursorPosition = () => {
@@ -25,18 +26,21 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     const selection = window.getSelection();
     if (!selection || !editorRef.current) return;
     
-    // Calculate cursor positions relative to the editor content
-    // This is more reliable than using selection.anchorOffset
-    const range = selection.getRangeAt(0);
-    const preSelectionRange = range.cloneRange();
-    preSelectionRange.selectNodeContents(editorRef.current);
-    preSelectionRange.setEnd(range.startContainer, range.startOffset);
-    const start = preSelectionRange.toString().length;
-    
-    const end = start + range.toString().length;
-    lastCursorPosition.current = { start, end };
-    
-    console.log("Saved cursor position:", lastCursorPosition.current);
+    try {
+      // Calculate cursor positions relative to the editor content
+      const range = selection.getRangeAt(0);
+      const preSelectionRange = range.cloneRange();
+      preSelectionRange.selectNodeContents(editorRef.current);
+      preSelectionRange.setEnd(range.startContainer, range.startOffset);
+      const start = preSelectionRange.toString().length;
+      
+      const end = start + range.toString().length;
+      lastCursorPosition.current = { start, end };
+      
+      console.log("Saved cursor position:", lastCursorPosition.current);
+    } catch (e) {
+      console.warn("Failed to save cursor position:", e);
+    }
   };
   
   // Restore cursor position after updating content
@@ -46,60 +50,60 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     // Only restore if editor has focus
     if (document.activeElement !== editorRef.current) return;
     
-    console.log("Restoring cursor position:", lastCursorPosition.current);
+    console.log("Attempting to restore cursor position:", lastCursorPosition.current);
     
-    const selection = window.getSelection();
-    if (!selection) return;
-    
-    // Find the position to place the cursor
-    const { start, end } = lastCursorPosition.current;
-    
-    // Create a walker to find the correct text node and offset
-    let currentPos = 0;
-    let startNode = null, startOffset = 0, endNode = null, endOffset = 0;
-    
-    const walker = document.createTreeWalker(
-      editorRef.current,
-      NodeFilter.SHOW_TEXT,
-      null
-    );
-    
-    // Find start position
-    let node;
-    while ((node = walker.nextNode())) {
-      const nodeLength = node.nodeValue?.length || 0;
-      if (currentPos + nodeLength >= start) {
-        startNode = node;
-        startOffset = start - currentPos;
-        break;
+    try {
+      const selection = window.getSelection();
+      if (!selection) return;
+      
+      // Find the position to place the cursor
+      const { start, end } = lastCursorPosition.current;
+      
+      // Create a walker to find the correct text node and offset
+      let currentPos = 0;
+      let startNode = null, startOffset = 0, endNode = null, endOffset = 0;
+      
+      const walker = document.createTreeWalker(
+        editorRef.current,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      
+      // Find start position
+      let node;
+      while ((node = walker.nextNode())) {
+        const nodeLength = node.nodeValue?.length || 0;
+        if (currentPos + nodeLength >= start) {
+          startNode = node;
+          startOffset = start - currentPos;
+          break;
+        }
+        currentPos += nodeLength;
       }
-      currentPos += nodeLength;
-    }
-    
-    // Find end position
-    currentPos = 0;
-    walker.currentNode = editorRef.current;
-    while ((node = walker.nextNode())) {
-      const nodeLength = node.nodeValue?.length || 0;
-      if (currentPos + nodeLength >= end) {
-        endNode = node;
-        endOffset = end - currentPos;
-        break;
+      
+      // Find end position
+      currentPos = 0;
+      walker.currentNode = editorRef.current;
+      while ((node = walker.nextNode())) {
+        const nodeLength = node.nodeValue?.length || 0;
+        if (currentPos + nodeLength >= end) {
+          endNode = node;
+          endOffset = end - currentPos;
+          break;
+        }
+        currentPos += nodeLength;
       }
-      currentPos += nodeLength;
-    }
-    
-    // Set selection to saved position
-    if (startNode && endNode) {
-      try {
+      
+      // Set selection to saved position
+      if (startNode && endNode) {
         const range = document.createRange();
         range.setStart(startNode, startOffset);
         range.setEnd(endNode, endOffset);
         selection.removeAllRanges();
         selection.addRange(range);
-      } catch (e) {
-        console.warn("Could not restore cursor position:", e);
       }
+    } catch (e) {
+      console.warn("Could not restore cursor position:", e);
     }
   };
   
@@ -125,11 +129,12 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
         editorRef.current.innerText = content;
       }
       
-      // Clear processing flag after a short delay
+      // Clear processing flag after a longer delay
       setTimeout(() => {
+        // Increased delay from 10ms to 50ms for more reliable cursor restoration
         restoreCursorPosition();
         setIsProcessingUpdate(false);
-      }, 10);
+      }, 50);
     }
   }, [content, localContent, isComposing, isLocalUpdate, isProcessingUpdate]);
 
@@ -143,6 +148,8 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     console.log("Debounced content update triggered");
     if (debouncedContent !== content) {
       console.log("Sending update to parent", debouncedContent.substring(0, 50));
+      // Increment content version when sending updates
+      contentVersionRef.current += 1;
       onChange(debouncedContent);
     }
   }, [debouncedContent, onChange, content, isProcessingUpdate, isComposing]);
@@ -158,15 +165,22 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
   }, [localContent, content, onChange]);
 
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    if (isProcessingUpdate) return;
+    if (isProcessingUpdate) {
+      console.log("Skipping input during processing");
+      return;
+    }
     
     // Save cursor position
     saveCursorPosition();
     
-    // Get the actual text content instead of innerHTML
-    const newContent = e.currentTarget.innerText;
-    console.log("Text input detected, length:", newContent.length);
-    setLocalContent(newContent);
+    try {
+      // Get the actual text content instead of innerHTML
+      const newContent = e.currentTarget.innerText;
+      console.log("Text input detected, length:", newContent.length);
+      setLocalContent(newContent);
+    } catch (e) {
+      console.error("Error handling input:", e);
+    }
   };
 
   // Composition events are used for IME (Input Method Editor) input like for Asian languages
@@ -186,7 +200,7 @@ const TextEditor = ({ content, onChange, isLocalUpdate = false }: TextEditorProp
     // Small delay to ensure content is processed before allowing new updates
     setTimeout(() => {
       setIsComposing(false);
-    }, 10);
+    }, 50); // Increased from 10ms to 50ms
   };
 
   // Handle focus and blur events to manage cursor position
